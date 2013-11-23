@@ -1,6 +1,6 @@
 /*
 Cuckoo Sandbox - Automated Malware Analysis
-Copyright (C) 2010-2012 Cuckoo Sandbox Developers
+Copyright (C) 2010-2013 Cuckoo Sandbox Developers
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -26,7 +26,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "hook_sleep.h"
 
 static IS_SUCCESS_NTSTATUS();
-static const char *module_name = "threading";
 
 HOOKDEF(NTSTATUS, WINAPI, NtCreateThread,
     __out     PHANDLE ThreadHandle,
@@ -121,12 +120,12 @@ HOOKDEF(NTSTATUS, WINAPI, NtTerminateThread,
 }
 
 HOOKDEF(HANDLE, WINAPI, CreateThread,
-  __in   LPSECURITY_ATTRIBUTES lpThreadAttributes,
-  __in   SIZE_T dwStackSize,
-  __in   LPTHREAD_START_ROUTINE lpStartAddress,
-  __in   LPVOID lpParameter,
-  __in   DWORD dwCreationFlags,
-  __out  LPDWORD lpThreadId
+    __in   LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    __in   SIZE_T dwStackSize,
+    __in   LPTHREAD_START_ROUTINE lpStartAddress,
+    __in   LPVOID lpParameter,
+    __in   DWORD dwCreationFlags,
+    __out  LPDWORD lpThreadId
 ) {
     IS_SUCCESS_HANDLE();
 
@@ -141,13 +140,13 @@ HOOKDEF(HANDLE, WINAPI, CreateThread,
 }
 
 HOOKDEF(HANDLE, WINAPI, CreateRemoteThread,
-  __in   HANDLE hProcess,
-  __in   LPSECURITY_ATTRIBUTES lpThreadAttributes,
-  __in   SIZE_T dwStackSize,
-  __in   LPTHREAD_START_ROUTINE lpStartAddress,
-  __in   LPVOID lpParameter,
-  __in   DWORD dwCreationFlags,
-  __out  LPDWORD lpThreadId
+    __in   HANDLE hProcess,
+    __in   LPSECURITY_ATTRIBUTES lpThreadAttributes,
+    __in   SIZE_T dwStackSize,
+    __in   LPTHREAD_START_ROUTINE lpStartAddress,
+    __in   LPVOID lpParameter,
+    __in   DWORD dwCreationFlags,
+    __out  LPDWORD lpThreadId
 ) {
     IS_SUCCESS_HANDLE();
 
@@ -166,7 +165,7 @@ HOOKDEF(HANDLE, WINAPI, CreateRemoteThread,
 }
 
 HOOKDEF(VOID, WINAPI, ExitThread,
-  __in  DWORD dwExitCode
+    __in  DWORD dwExitCode
 ) {
     IS_SUCCESS_VOID();
 

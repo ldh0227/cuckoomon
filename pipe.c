@@ -1,6 +1,6 @@
 /*
 Cuckoo Sandbox - Automated Malware Analysis
-Copyright (C) 2010-2012 Cuckoo Sandbox Developers
+Copyright (C) 2010-2013 Cuckoo Sandbox Developers
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ntapi.h"
 #include "pipe.h"
 #include "utf8.h"
+
+const char *g_pipe_name;
 
 static int _pipe_utf8x(char **out, unsigned short x)
 {
@@ -123,8 +125,8 @@ int pipe(const char *fmt, ...)
         _pipe_sprintf(buf, fmt, args);
         va_end(args);
 
-        return CallNamedPipe(PIPE_NAME, buf, len, buf, len,
-            (unsigned long *) &len, 0);
+        return CallNamedPipe(g_pipe_name, buf, len, buf, len,
+            (unsigned long *) &len, NMPWAIT_WAIT_FOREVER);
     }
     return -1;
 }
@@ -139,8 +141,8 @@ int pipe2(void *out, int *outlen, const char *fmt, ...)
         _pipe_sprintf(buf, fmt, args);
         va_end(args);
 
-        return CallNamedPipe(PIPE_NAME, buf, len, out, *outlen,
-            (DWORD *) outlen, 0);
+        return CallNamedPipe(g_pipe_name, buf, len, out, *outlen,
+            (DWORD *) outlen, NMPWAIT_WAIT_FOREVER);
     }
     return -1;
 }

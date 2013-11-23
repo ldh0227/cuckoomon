@@ -1,6 +1,6 @@
 /*
 Cuckoo Sandbox - Automated Malware Analysis
-Copyright (C) 2010-2012 Cuckoo Sandbox Developers
+Copyright (C) 2010-2013 Cuckoo Sandbox Developers
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -288,5 +288,12 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS {
 } RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
 
 typedef void *PPS_CREATE_INFO, *PPS_ATTRIBUTE_LIST;
+
+typedef struct _TRANSMIT_FILE_BUFFERS {
+    PVOID Head;
+    DWORD HeadLength;
+    PVOID Tail;
+    DWORD TailLength;
+} TRANSMIT_FILE_BUFFERS, *LPTRANSMIT_FILE_BUFFERS;
 
 #endif

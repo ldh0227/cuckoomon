@@ -1,6 +1,6 @@
 /*
 Cuckoo Sandbox - Automated Malware Analysis
-Copyright (C) 2010-2012 Cuckoo Sandbox Developers
+Copyright (C) 2010-2013 Cuckoo Sandbox Developers
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -25,7 +25,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "log.h"
 #include "pipe.h"
 #include "ignore.h"
+#include "hook_file.h"
 #include "hook_sleep.h"
+#include "config.h"
 
 #define HOOK(library, funcname) {L###library, #funcname, NULL, \
     &New_##funcname, (void **) &Old_##funcname}
@@ -63,6 +65,7 @@ static hook_t g_hooks[] = {
     HOOK(ntdll, NtQueryDirectoryFile),
     HOOK(ntdll, NtQueryInformationFile),
     HOOK(ntdll, NtSetInformationFile),
+    HOOK(ntdll, NtOpenDirectoryObject),
     HOOK(ntdll, NtCreateDirectoryObject),
 
     // CreateDirectoryExA calls CreateDirectoryExW
@@ -167,6 +170,7 @@ static hook_t g_hooks[] = {
 
     HOOK(ntdll, NtCreateMutant),
     HOOK(ntdll, NtOpenMutant),
+    HOOK(ntdll, NtCreateNamedPipeFile),
 
     //
     // Process Hooks
@@ -175,16 +179,18 @@ static hook_t g_hooks[] = {
     HOOK(ntdll, NtCreateProcess),
     HOOK(ntdll, NtCreateProcessEx),
     HOOK(ntdll, NtCreateUserProcess),
-    HOOK(ntdll, NtOpenProcess),
+    //HOOK(ntdll, NtOpenProcess),
     HOOK(ntdll, NtTerminateProcess),
     HOOK(ntdll, NtCreateSection),
     HOOK(ntdll, NtOpenSection),
-    HOOK(kernel32, CreateProcessInternalW),
+    //HOOK(kernel32, CreateProcessInternalW),
+    HOOK(ntdll, ZwMapViewOfSection),
     HOOK(kernel32, ExitProcess),
 
     // all variants of ShellExecute end up in ShellExecuteExW
     HOOK(shell32, ShellExecuteExW),
-    HOOK(ntdll, NtAllocateVirtualMemory),
+    HOOK(ntdll, NtUnmapViewOfSection),
+    // HOOK(ntdll, NtAllocateVirtualMemory),
     HOOK(ntdll, NtReadVirtualMemory),
     HOOK(kernel32, ReadProcessMemory),
     HOOK(ntdll, NtWriteVirtualMemory),
@@ -192,7 +198,7 @@ static hook_t g_hooks[] = {
     HOOK(ntdll, NtProtectVirtualMemory),
     HOOK(kernel32, VirtualProtectEx),
     HOOK(ntdll, NtFreeVirtualMemory),
-    HOOK(kernel32, VirtualFreeEx),
+    //HOOK(kernel32, VirtualFreeEx),
 
     HOOK(msvcrt, system),
 
@@ -219,16 +225,18 @@ static hook_t g_hooks[] = {
     HOOK(user32, SetWindowsHookExA),
     HOOK(user32, SetWindowsHookExW),
     HOOK(user32, UnhookWindowsHookEx),
-    HOOK(ntdll, LdrLoadDll),
+    //HOOK(ntdll, LdrLoadDll),
     HOOK(ntdll, LdrGetDllHandle),
     HOOK(ntdll, LdrGetProcedureAddress),
     HOOK(kernel32, DeviceIoControl),
     HOOK(user32, ExitWindowsEx),
     HOOK(kernel32, IsDebuggerPresent),
     HOOK(advapi32, LookupPrivilegeValueW),
-    HOOK(ntdll, NtClose),
+    //HOOK(ntdll, NtClose),
     HOOK(kernel32, WriteConsoleA),
     HOOK(kernel32, WriteConsoleW),
+    HOOK(user32, GetSystemMetrics),
+    HOOK(user32, GetCursorPos),
 
     //
     // Network Hooks
@@ -285,14 +293,78 @@ static hook_t g_hooks[] = {
     //
 
     HOOK(ws2_32, WSAStartup),
+    HOOK(ws2_32, gethostbyname),
+    HOOK(ws2_32, socket),
+    HOOK(ws2_32, connect),
+    HOOK(ws2_32, send),
+    HOOK(ws2_32, sendto),
+    HOOK(ws2_32, recv),
+    HOOK(ws2_32, recvfrom),
+    HOOK(ws2_32, accept),
+    HOOK(ws2_32, bind),
+    HOOK(ws2_32, listen),
+    HOOK(ws2_32, select),
+    HOOK(ws2_32, setsockopt),
+    HOOK(ws2_32, ioctlsocket),
+    HOOK(ws2_32, closesocket),
+    HOOK(ws2_32, shutdown),
+
+    HOOK(ws2_32, WSARecv),
+    HOOK(ws2_32, WSARecvFrom),
+    HOOK(ws2_32, WSASend),
+    HOOK(ws2_32, WSASendTo),
+    HOOK(ws2_32, WSASocketA),
+    HOOK(ws2_32, WSASocketW),
+
+    HOOK(wsock32, connect),
+    HOOK(wsock32, send),
+    HOOK(wsock32, recv),
+
+    HOOK(mswsock, ConnectEx),
+    HOOK(mswsock, TransmitFile),
 };
 
-// get a random hooking technique, except for "direct jmp"
-// #define HOOKTYPE (1 + (random() % (HOOK_MAXTYPE - 1)))
+// as a temporary solution for the webbrowser crashes, we only hook the core
+// functions, rather than every API we currently have hooks for (i.e., we
+// hook process logic, threads, and files)
+// however, the whitelist of hooked functions is up to cuckoo, as this list
+// will be populated on init
+#define HOOKED_DLLS_MAX 32
+static wchar_t g_hooked_dlls[HOOKED_DLLS_MAX][16];
+
+static void init_hooked_dlls()
+{
+    int length = sizeof(g_hooked_dlls);
+    pipe2(g_hooked_dlls, &length, "HOOKDLLS");
+}
+
+static int is_whitelisted_hooking_dll(const wchar_t *library, int length)
+{
+    // if the first whitelisted dll starts with a null-byte, then there's no
+    // whitelist and all the dlls are allowed to hook
+    if(g_hooked_dlls[0][0] == 0) return 1;
+
+    // ?
+    if(length > 16) length = 16;
+
+    for (int i = 0; i < HOOKED_DLLS_MAX; i++) {
+        if(!wcsnicmp(g_hooked_dlls[i], library, 16)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// get a random hooking method, except for hook_jmp_direct
+//#define HOOKTYPE randint(HOOK_NOP_JMP_DIRECT, HOOK_MOV_EAX_INDIRECT_PUSH_RETN)
+// error testing with hook_jmp_direct only
 #define HOOKTYPE HOOK_JMP_DIRECT
 
 void set_hooks_dll(const wchar_t *library, int len)
 {
+    // skip if the dll has not been whitelisted
+    if(is_whitelisted_hooking_dll(library, len) == 0) return;
+
     for (int i = 0; i < ARRAYSIZE(g_hooks); i++) {
         if(!wcsnicmp(g_hooks[i].library, library, len)) {
             hook_api(&g_hooks[i], HOOKTYPE);
@@ -302,7 +374,7 @@ void set_hooks_dll(const wchar_t *library, int len)
 
 void set_hooks()
 {
-    // the hooks contain the gates as well, so they have to be RWX
+    // the hooks contain executable code as well, so they have to be RWX
     DWORD old_protect;
     VirtualProtect(g_hooks, sizeof(g_hooks), PAGE_EXECUTE_READWRITE,
         &old_protect);
@@ -311,7 +383,19 @@ void set_hooks()
 
     // now, hook each api :)
     for (int i = 0; i < ARRAYSIZE(g_hooks); i++) {
-        hook_api(&g_hooks[i], HOOKTYPE);
+
+        // skip if the dll is not whitelisted
+        if(is_whitelisted_hooking_dll(g_hooks[i].library,
+                lstrlenW(g_hooks[i].library)) == 0) {
+            continue;
+        }
+
+        if(g_hooks[i].allow_hook_recursion != FALSE) {
+            hook_api(&g_hooks[i], HOOKTYPE);
+        }
+        else {
+            hook_api(&g_hooks[i], HOOKTYPE);
+        }
     }
 
     hook_enable();
@@ -335,11 +419,26 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD dwReason, LPVOID lpReserved)
             add_protected_pid(pids[i]);
         }
 
+        // initialize file stuff
+        file_init();
+
+        // read the config settings
+        read_config();
+        g_pipe_name = g_config.pipe_name;
+
         // initialize the log file
-        log_init(0);
+        log_init(g_config.host_ip, g_config.host_port, 0);
 
         // initialize the Sleep() skipping stuff
-        init_sleep_skip();
+        init_sleep_skip(g_config.first_process);
+
+        // disable the retaddr check if the user wants so
+        if(g_config.retaddr_check == 0) {
+            hook_disable_retaddr_check();
+        }
+
+        // initialize the whitelist of dlls we want to hook
+        init_hooked_dlls();
 
         // initialize all hooks
         set_hooks();
